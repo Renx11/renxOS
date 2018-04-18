@@ -7,9 +7,9 @@ pthread_key_t   g_selfTidKey;
 INT32   g_localNode = 3;
 TASK_T  *g_taskList;
 
-typedef void *(*Task_Entry)(void *param);
+typedef void (*Task_Entry)(INT32 event, void *msg, INT32 msgLen, TID sender);
 
-INT32 init_task(INT32 num)
+INT32 InitTask(INT32 num)
 {
     INT32 i = 0;
     
@@ -26,7 +26,6 @@ INT32 init_task(INT32 num)
         return RENX_OS_FAIL;
     }
 
-
     return RENX_OS_SUCCESS;
 }
 
@@ -42,13 +41,14 @@ INT32 CreateTask(INT32 id, Task_Entry func, INT32 stackSzie)
 
     g_taskList[id].tid.nodeId = g_localNode;
     g_taskList[id].tid.taskId = id;
+    g_taskList[id].func = func;
 
     /*创建队列*/
     g_taskList[id].msgQue = InitQue(100);
     pthread_mutex_init(&g_taskList[id].mutex, NULL);
     pthread_cond_init(&g_taskList[id].cond, NULL);
 
-    if( RENX_OS_SUCCESS != OsCreateThread(&systid, func, &id, stackSzie) )
+    if( RENX_OS_SUCCESS != OsCreateThread(&systid, TaskThread, &id, stackSzie) )
     {
         memset(g_taskList[id], 0, sizeof(TASK_T));
         return RENX_OS_FAIL;
@@ -104,30 +104,45 @@ INT32 OsCreateThread(pthread_t *sysid, Task_Entry func, void *param, INT32 stac
    return err; 
 }
 
+void ExitTask(INT32 id)
+{
+    pthread_mutex_destroy(&g_taskList[id].mutex);
+    pthread_cond_destroy(&g_taskList[id].cond);
+
+    OsFree(g_taskList[id].msgQue);
+}
+
 void TaskThread(void *param)
 {
     INT32 tid = *(INT32 *)param;
-    INT8 *pMsg = NULL;
+    INT8 *pData = NULL;
     INT32 iRet = 0;
+    msgHead_T *pMsg = NULL;
+    Task_Entry taskEntry;
 
     pthread_setspecific(g_selfTidKey, (void *)&tid);
+    g_taskList[tid].use = TASK_STATUS_USE;
 
     while(1)
     {
-        while(1)
+        if(g_taskList[tid].use == TASK_STATUS_USE)
         {
-            iRet = OutQue(&g_taskList[tid].msgQue, &pMsg);
-            if(RENX_OS_SUCCESS != iRet)
+            while(1)
             {
-                break;
+                iRet = OutQue(&g_taskList[tid].msgQue, &pData);
+                if(RENX_OS_SUCCESS != iRet)
+                {
+                    break;
+                }
+                
+                /*处理message*/
+                pMsg = (msgHead_T *)pData;
+                (*taskEntry)(pMsg->event, pData+sizeof(msgHead_T), pMsg->contentLength, pMsg->sender);
             }
+       }
 
-            /*处理message*/
-        }
-
-        waitMsg(g_taskList[tid].mutex, g_taskList[tid].cond);
+       waitMsg(g_taskList[tid].mutex, g_taskList[tid].cond);
     }
-
     return;
 }
 
@@ -143,18 +158,9 @@ INT32 ASendx(INT8 *Buf, INT32 bufLen, TID tid)
     }
 }
 
-typedef struct
-{
-    INT8  type;
-    INT8  event;
-    TID   sender;
-    TID   reciever;
-    INT32 contentLength;
-}msgHead_T;
-
 INT32 SendToLocalTask(INT8 *Buf, INT32 bufLen, TID sender, TID tid)
 {
-    msgHead_T msg = {0}
+    msgHead_T msg = {0};
     INT8 *pBuf = NULL;
     
     msg.type = 0;
@@ -178,6 +184,7 @@ INT32 SendToLocalTask(INT8 *Buf, INT32 bufLen, TID sender, TID tid)
 
 INT32 SendToRemoteTask(INT8 *Buf, INT32 bufLen, TID tid)
 {
+    
     return RENX_OS_SUCCESS;
 }
 

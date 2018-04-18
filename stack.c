@@ -45,9 +45,13 @@ INT32 InQue(Que_T *pQue, void *pData)
         return RENX_OS_FAIL;
     }
 
+    pthread_mutex_trylock(&pQue->mutex);
+
     *(void **)((INT8 *)pQue->data + pQue->head * pQue->size) = pData;
     pQue->count++;
     pQue->head = (pQue->head+1) % pQue->sum;
+
+    pthread_mutex_unlock(&pQue->mutex);
 
     return RENX_OS_SUCCESS;
 }
@@ -58,10 +62,13 @@ INT32 OutQue(Que_T *pQue, void **pData)
     {
         return RENX_OS_FAIL;
     }
+    pthread_mutex_trylock(&pQue->mutex);
 
     *pData = *(void **)((INT8 *)pQue->data + pQue->tail * pQue->size);
     pQue->count--;
     pQue->tail = (pQue->tail+1) % pQue->sum;
+
+    pthread_mutex_unlock(&pQue->mutex);
 
     return RENX_OS_SUCCESS;
 }
